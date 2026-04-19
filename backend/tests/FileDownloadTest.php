@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JutForm\Tests;
 
+use JutForm\Controllers\FileUploadController;
 use JutForm\Tests\Support\IntegrationTestCase;
 
 /**
@@ -47,5 +48,20 @@ final class FileDownloadTest extends IntegrationTestCase
         $this->loginAs('bob');
         $res = $this->get('/api/files/1/download');
         $this->assertSame(404, $res['status']);
+    }
+
+    public function testStoredPathIsUniquePerUploadEvenWithSameOriginalName(): void
+    {
+        $first = FileUploadController::buildStoredPath(1, 'logo.png');
+        $second = FileUploadController::buildStoredPath(1, 'logo.png');
+        $third = FileUploadController::buildStoredPath(2, 'logo.png');
+
+        $this->assertNotSame($first, $second);
+        $this->assertNotSame($first, $third);
+        $this->assertStringEndsWith('.png', $first);
+        $this->assertStringEndsWith('.png', $second);
+        $this->assertStringContainsString('form_1', $first);
+        $this->assertStringContainsString('form_1', $second);
+        $this->assertStringContainsString('form_2', $third);
     }
 }

@@ -99,4 +99,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the defect corrupted customer-facing settings on a production workflow and caused broken email content to be sent to end users, but it did not create a security breach or a system-wide outage.
 - **Impact:** Complex form settings now persist without truncation, which restores correctness for branded notification templates and other larger values. The change improves data integrity and prevents silent content corruption during normal form administration.
 
+## TICKET-015 - Form Logo Shows the Wrong Image
+**Task Completed:** Ticket 15
+**Technical Action Taken:** Reworked file upload storage so each uploaded asset is written to a unique randomized on-disk path rather than reusing the original filename, and added regression coverage for same-name uploads.
+
+- **Diagnosis:** The failure mapped to checklist point 6, Wildcard / Core PHP Logic. The upload controller was saving files under `storage/uploads/<original filename>`, which meant two different uploads with the same filename could overwrite the same physical file on disk. The database rows remained distinct, but the stored file contents could be replaced by another upload, causing a form logo to render the wrong image.
+- **Action:** Refactored `backend/src/Controllers/FileUploadController.php` to generate a unique random storage filename for every upload while preserving the file extension. The upload flow still stores the original display name in the database, but the physical file path is now collision-resistant. Added a regression test in `backend/tests/FileDownloadTest.php` to verify that two uploads with the same original filename produce different stored paths.
+- **Triage Justification:** Priority 2 was appropriate because the defect caused cross-account asset confusion and undermined customer trust, but it did not expose direct authentication bypass or full application outage behavior.
+- **Impact:** Uploaded logos are now isolated per file and can no longer overwrite one another based on a shared filename. This restores correctness for logo rendering, protects asset integrity across forms and users, and removes a subtle cross-tenant data mix-up risk.
+
 Ready for the next update.

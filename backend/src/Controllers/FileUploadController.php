@@ -11,14 +11,35 @@ use JutForm\Models\KeyValueStore;
 
 class FileUploadController
 {
-    private static function uploadDir(): string
+    private static function uploadDir(?int $formId = null): string
     {
         $root = dirname(__DIR__, 2);
         $dir = $root . '/storage/uploads';
+        if ($formId !== null) {
+            $dir .= '/form_' . $formId;
+        }
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
         return $dir;
+    }
+
+    public static function buildStoredPath(int $formId, string $originalName): string
+    {
+        $baseName = pathinfo($originalName, PATHINFO_FILENAME);
+        $baseName = is_string($baseName) ? strtolower($baseName) : 'upload';
+        $safeBaseName = preg_replace('/[^a-z0-9]+/', '_', $baseName);
+        $safeBaseName = trim((string) $safeBaseName, '_');
+        if ($safeBaseName === '') {
+            $safeBaseName = 'upload';
+        }
+
+        $extension = pathinfo($originalName, PATHINFO_EXTENSION);
+        $extension = is_string($extension) ? strtolower($extension) : '';
+        $safeExtension = preg_replace('/[^a-z0-9]+/', '', $extension ?? '');
+        $suffix = $safeExtension !== '' ? '.' . $safeExtension : '';
+
+        return self::uploadDir($formId) . '/' . bin2hex(random_bytes(12)) . '_' . $safeBaseName . $suffix;
     }
 
     public function upload(Request $request, string $id): void
@@ -37,7 +58,7 @@ class FileUploadController
         $orig = $_FILES['file']['name'];
         $mime = $_FILES['file']['type'] ?? 'application/octet-stream';
         $size = (int) ($_FILES['file']['size'] ?? 0);
-        $target = self::uploadDir() . '/' . basename($orig);
+        $target = self::buildStoredPath((int) $id, $orig);
         if (!move_uploaded_file($_FILES['file']['tmp_name'], $target)) {
             Response::error('Upload failed', 500);
         }
