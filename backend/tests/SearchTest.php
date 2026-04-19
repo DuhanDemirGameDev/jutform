@@ -42,4 +42,16 @@ final class SearchTest extends IntegrationTestCase
         $this->assertArrayHasKey('forms', $body);
         $this->assertIsArray($body['forms']);
     }
+
+    public function testAdvancedSearchRejectsInjectedField(): void
+    {
+        $this->loginAs('poweruser');
+        $res = $this->get('/api/search/advanced', [
+            'field' => 'title OR 1=1',
+            'term' => 'Power form',
+        ]);
+        $this->assertSame(400, $res['status']);
+        $body = $this->jsonBody($res);
+        $this->assertSame('Invalid search field', $body['error']);
+    }
 }
