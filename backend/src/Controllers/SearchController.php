@@ -7,6 +7,7 @@ use JutForm\Core\RedisClient;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
 use JutForm\Core\Response;
+use JutForm\Models\Form;
 use PDO;
 
 class SearchController
@@ -30,14 +31,22 @@ class SearchController
         if ($term === '') {
             Response::json(['results' => []]);
         }
-        $pdo = Database::getInstance();
-        $like = '%' . $term . '%';
-        $stmt = $pdo->prepare(
-            'SELECT id, config_key, value FROM app_config WHERE value LIKE ? LIMIT 200'
-        );
-        $stmt->execute([$like]);
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        Response::json(['results' => $rows]);
+        if (strlen($term) > 255) {
+            Response::error('Search term too long', 400);
+        }
+
+        $results = [];
+
+        try {
+            $rows = Form::searchByUser((int) $uid, $term, 50);
+            if (is_array($rows)) {
+                $results = $rows;
+            }
+        } catch (\Throwable) {
+            $results = [];
+        }
+
+        Response::json(['results' => $results]);
     }
 
     public function advancedSearch(Request $request): void

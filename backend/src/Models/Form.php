@@ -69,6 +69,30 @@ class Form
         return $rows;
     }
 
+    /**
+     * Searches the authenticated user's forms using a cached, indexed path.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function searchByUser(int $userId, string $term, int $limit = 50): array
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return [];
+        }
+
+        $limit = max(1, min(50, $limit));
+        $cacheKey = self::searchCacheKey($userId, $term, $limit);
+        $cached = self::cacheGet($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $rows = self::runSearchQuery($userId, $term, $limit);
+        self::cacheSet($cacheKey, $rows, 60);
+        return $rows;
+    }
+
     public static function create(array $data): int
     {
         $pdo = Database::getInstance();
@@ -87,11 +111,16 @@ class Form
             $now,
             $now,
         ]);
+        self::touchSearchCache((int) $data['user_id']);
         return (int) $pdo->lastInsertId();
     }
 
     public static function update(int $id, array $data): void
     {
+        $existing = self::find($id);
+        if ($existing === null) {
+            return;
+        }
         $fields = [];
         $params = [];
         foreach (['title', 'description', 'status', 'is_public', 'fields_json'] as $k) {
@@ -108,6 +137,7 @@ class Form
         $params[] = $id;
         $stmt = Database::getInstance()->prepare($sql);
         $stmt->execute($params);
+        self::touchSearchCache((int) $existing['user_id']);
     }
 
     public static function touchDashboardCache(int $userId): void
@@ -115,6 +145,16 @@ class Form
         try {
             $redis = RedisClient::getInstance();
             $redis->setex(self::dashboardVersionKey($userId), 86400, (string) microtime(true));
+        } catch (\Throwable) {
+            // Cache invalidation is best-effort.
+        }
+    }
+
+    public static function touchSearchCache(int $userId): void
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $redis->setex(self::searchVersionKey($userId), 86400, (string) microtime(true));
         } catch (\Throwable) {
             // Cache invalidation is best-effort.
         }
@@ -130,6 +170,16 @@ class Form
         return 'forms:dashboard:ver:' . $userId;
     }
 
+    private static function searchCacheKey(int $userId, string $term, int $limit): string
+    {
+        return 'forms:search:' . $userId . ':' . self::searchVersion($userId) . ':' . sha1(mb_strtolower($term, 'UTF-8') . ':' . $limit);
+    }
+
+    private static function searchVersionKey(int $userId): string
+    {
+        return 'forms:search:ver:' . $userId;
+    }
+
     private static function dashboardVersion(int $userId): string
     {
         try {
@@ -141,6 +191,94 @@ class Form
         } catch (\Throwable) {
         }
         return '0';
+    }
+
+    private static function searchVersion(int $userId): string
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $version = $redis->get(self::searchVersionKey($userId));
+            if (is_string($version) && $version !== '') {
+                return $version;
+            }
+        } catch (\Throwable) {
+        }
+        return '0';
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private static function runSearchQuery(int $userId, string $term, int $limit): array
+    {
+        $pdo = Database::getInstance();
+        $fullTextQuery = self::fullTextQuery($term);
+
+        if ($fullTextQuery !== null) {
+            $sql = sprintf(
+                'SELECT id, user_id, title, description, status, is_public, created_at, updated_at
+                 FROM forms
+                 WHERE user_id = :user_id
+                   AND (
+                     MATCH(title, description) AGAINST (:fulltext_filter IN BOOLEAN MODE)
+                     OR status LIKE :status_term ESCAPE \'\\\\\'
+                   )
+                 ORDER BY
+                   MATCH(title, description) AGAINST (:fulltext_order IN BOOLEAN MODE) DESC,
+                   updated_at DESC
+                 LIMIT %d',
+                $limit
+            );
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                'user_id' => $userId,
+                'fulltext_filter' => $fullTextQuery,
+                'fulltext_order' => $fullTextQuery,
+                'status_term' => '%' . self::escapeLike($term) . '%',
+            ]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        $sql = sprintf(
+            'SELECT id, user_id, title, description, status, is_public, created_at, updated_at
+             FROM forms
+             WHERE user_id = :user_id
+               AND (
+                 title LIKE :term ESCAPE \'\\\\\'
+                 OR description LIKE :term ESCAPE \'\\\\\'
+                 OR status LIKE :term ESCAPE \'\\\\\'
+               )
+             ORDER BY updated_at DESC
+             LIMIT %d',
+            $limit
+        );
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            'user_id' => $userId,
+            'term' => '%' . self::escapeLike($term) . '%',
+        ]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private static function fullTextQuery(string $term): ?string
+    {
+        $tokens = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($term, 'UTF-8')) ?: [];
+        $tokens = array_values(array_unique(array_filter($tokens, static function (string $token): bool {
+            return mb_strlen($token, 'UTF-8') >= 3;
+        })));
+
+        if ($tokens === []) {
+            return null;
+        }
+
+        return implode(' ', array_map(static function (string $token): string {
+            return '+' . $token . '*';
+        }, $tokens));
+    }
+
+    private static function escapeLike(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
 
     /**
