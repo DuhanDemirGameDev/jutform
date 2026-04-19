@@ -72,4 +72,13 @@
 - **Triage Justification:** Priority 2 was appropriate because this was a targeted abuse-prevention feature rather than a data breach or outage, but it still protects an important public entry point from bot traffic and uncontrolled load.
 - **Impact:** Public submissions are now constrained to a predictable request rate per IP, which reduces spam, protects downstream processing from bursts, and preserves normal behavior on unrelated endpoints. The `Retry-After` header also gives clients a clear recovery window instead of failing blindly.
 
+## TICKET-006 - Form Search Performance
+**Task Completed:** ticket 6
+**Technical Action Taken:** Replaced the dashboard search path’s broad `app_config` scan with a user-scoped forms query, added Redis caching and cache invalidation for search results, and introduced a MySQL full-text index to keep form lookups fast as data volume grows.
+
+- **Diagnosis:** The failure mapped primarily to checklist point 2, MySQL Performance, with point 3, Redis/Cache, as an amplifier. The search endpoint was querying `app_config` with a broad `LIKE '%term%'` pattern, which forced expensive scans over unrelated configuration data and did not benefit from a targeted index or result cache. As traffic and stored data grew, repeated searches and refreshes compounded the load and pushed tail latency higher.
+- **Action:** Refactored `backend/src/Controllers/SearchController.php` so `/api/search` now searches only the authenticated user’s forms instead of global config records. Added `Form::searchByUser()` in `backend/src/Models/Form.php` to use a cached, user-scoped search path with Redis-backed result caching and versioned invalidation on form create/update. Added `backend/migrations/0004_add_forms_fulltext_index.php` so title and description searches can use a full-text index, with a safe fallback `LIKE` path for short terms. Extended `backend/tests/SearchTest.php` to cover positive search results and user scoping.
+- **Triage Justification:** Priority 2 was appropriate because the issue caused severe user-facing latency in a common workflow and worsened under concurrent use, but it did not cross a security boundary or take down the full application.
+- **Impact:** Search now executes against the correct dataset, returns only the current user’s forms, and avoids repeated full scans under normal usage. Redis caching smooths repeated queries, while the new full-text index materially reduces query cost as the forms table continues to grow.
+
 Ready for the next update.
