@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JutForm\Tests;
 
 use JutForm\Core\Database;
+use JutForm\Core\RedisClient;
 use JutForm\Models\KeyValueStore;
 use JutForm\Core\Request;
 use JutForm\Tests\Support\IntegrationTestCase;
@@ -88,5 +89,90 @@ final class SubmissionTest extends IntegrationTestCase
         $csv = (string) ($res['body'] ?? '');
         $this->assertStringContainsString('id', $csv);
         $this->assertStringContainsString('data_json', $csv);
+    }
+
+    public function testAdjacentPagesDoNotOverlapWhenSubmittedAtTies(): void
+    {
+        $this->loginAs('poweruser');
+        $this->clearSubmissionSnapshot($this->userIdFor('poweruser'), 1);
+
+        $pdo = Database::getInstance();
+        $timestamp = '2030-01-01 12:00:00';
+        $ids = [];
+        $stmt = $pdo->prepare(
+            'INSERT INTO submissions (form_id, data_json, ip_address, submitted_at) VALUES (?, ?, ?, ?)'
+        );
+
+        for ($i = 1; $i <= 4; $i++) {
+            $stmt->execute([1, json_encode(['n' => $i], JSON_THROW_ON_ERROR), '127.0.0.1', $timestamp]);
+            $ids[] = (int) $pdo->lastInsertId();
+        }
+
+        rsort($ids);
+
+        $pageOne = $this->get('/api/forms/1/submissions', ['page' => 1, 'limit' => 2]);
+        $this->assertSame(200, $pageOne['status']);
+        $firstBody = $this->jsonBody($pageOne);
+        $firstIds = array_map(static fn (array $row): int => (int) $row['id'], $firstBody['submissions']);
+
+        $pageTwo = $this->get('/api/forms/1/submissions', ['page' => 2, 'limit' => 2]);
+        $this->assertSame(200, $pageTwo['status']);
+        $secondBody = $this->jsonBody($pageTwo);
+        $secondIds = array_map(static fn (array $row): int => (int) $row['id'], $secondBody['submissions']);
+
+        $this->assertSame(array_slice($ids, 0, 2), $firstIds);
+        $this->assertSame(array_slice($ids, 2, 2), $secondIds);
+        $this->assertSame([], array_values(array_intersect($firstIds, $secondIds)));
+    }
+
+    public function testLaterPagesUseSnapshotAndIgnoreNewerInsertions(): void
+    {
+        $this->loginAs('poweruser');
+        $this->clearSubmissionSnapshot($this->userIdFor('poweruser'), 1);
+
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'INSERT INTO submissions (form_id, data_json, ip_address, submitted_at) VALUES (?, ?, ?, ?)'
+        );
+        $baseTimes = [
+            '2030-01-01 12:00:03',
+            '2030-01-01 12:00:02',
+            '2030-01-01 12:00:01',
+        ];
+        $ids = [];
+        foreach ($baseTimes as $index => $time) {
+            $stmt->execute([1, json_encode(['seed' => $index], JSON_THROW_ON_ERROR), '127.0.0.1', $time]);
+            $ids[] = (int) $pdo->lastInsertId();
+        }
+
+        $pageOne = $this->get('/api/forms/1/submissions', ['page' => 1, 'limit' => 2]);
+        $this->assertSame(200, $pageOne['status']);
+        $firstBody = $this->jsonBody($pageOne);
+        $firstIds = array_map(static fn (array $row): int => (int) $row['id'], $firstBody['submissions']);
+
+        $stmt->execute([1, json_encode(['seed' => 'new'], JSON_THROW_ON_ERROR), '127.0.0.1', '2030-01-01 12:00:04']);
+        $newId = (int) $pdo->lastInsertId();
+
+        $pageTwo = $this->get('/api/forms/1/submissions', ['page' => 2, 'limit' => 2]);
+        $this->assertSame(200, $pageTwo['status']);
+        $secondBody = $this->jsonBody($pageTwo);
+        $secondIds = array_map(static fn (array $row): int => (int) $row['id'], $secondBody['submissions']);
+
+        $this->assertNotContains($newId, $secondIds);
+        $this->assertSame([], array_values(array_intersect($firstIds, $secondIds)));
+    }
+
+    private function clearSubmissionSnapshot(int $userId, int $formId): void
+    {
+        $redis = RedisClient::getInstance();
+        $redis->del('submissions:snapshot:' . $userId . ':' . $formId);
+    }
+
+    private function userIdFor(string $username): int
+    {
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+        $stmt->execute([$username]);
+        return (int) $stmt->fetchColumn();
     }
 }

@@ -108,4 +108,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the defect caused cross-account asset confusion and undermined customer trust, but it did not expose direct authentication bypass or full application outage behavior.
 - **Impact:** Uploaded logos are now isolated per file and can no longer overwrite one another based on a shared filename. This restores correctness for logo rendering, protects asset integrity across forms and users, and removes a subtle cross-tenant data mix-up risk.
 
+## TICKET-014 - Duplicate Rows When Paging Through Submissions
+**Task Completed:** Ticket 14
+**Technical Action Taken:** Stabilized submissions pagination with deterministic ordering and a short-lived Redis-backed pagination snapshot so later pages continue reading from the same result window even while new submissions arrive.
+
+- **Diagnosis:** The failure mapped to checklist point 6, Wildcard / Core PHP Logic. The submissions list was using offset pagination with `ORDER BY submitted_at DESC` only, which meant rows with identical timestamps could reorder nondeterministically between requests. On top of that, new submissions arriving between page loads shifted the offset window, causing adjacent pages to overlap even though the underlying records were not true duplicates.
+- **Action:** Refactored `backend/src/Models/Submission.php` to enforce deterministic ordering with `ORDER BY submitted_at DESC, id DESC` and to support querying against a snapshot boundary. Updated `backend/src/Controllers/SubmissionController.php` to create a snapshot from page 1, cache it briefly in Redis per user/form, and reuse it for later pages so the browse session remains stable while new submissions are inserted. Added regression coverage in `backend/tests/SubmissionTest.php` for both tied timestamps and mid-pagination inserts.
+- **Triage Justification:** Priority 2 was appropriate because the defect directly affected a common user workflow and undermined trust in submission data, but it did not expose data across tenants or cause a full-service outage.
+- **Impact:** Submission pagination is now consistent across adjacent pages, even on active forms receiving new entries. The deterministic sort removes tie-based shuffling, and the snapshot window prevents offset drift, making the UI more reliable and easier to reason about for operators reviewing live submission queues.
+
 Ready for the next update.

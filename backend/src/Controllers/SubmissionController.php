@@ -4,6 +4,7 @@ namespace JutForm\Controllers;
 
 use JutForm\Core\Database;
 use JutForm\Core\QueueService;
+use JutForm\Core\RedisClient;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
 use JutForm\Core\Response;
@@ -13,6 +14,8 @@ use JutForm\Models\Submission;
 
 class SubmissionController
 {
+    private const SNAPSHOT_TTL_SECONDS = 300;
+
     public function index(Request $request, string $id): void
     {
         $sessionUserId = RequestContext::$currentUserId;
@@ -35,7 +38,15 @@ class SubmissionController
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
         $offset = ($page - 1) * $limit;
 
-        $rows = Submission::findByForm((int) $id, $limit, $offset);
+        $formId = (int) $id;
+        $snapshot = $this->resolvePaginationSnapshot($sessionUserId, $formId, $page);
+        $rows = Submission::findByForm(
+            $formId,
+            $limit,
+            $offset,
+            $snapshot['submitted_at'],
+            $snapshot['id']
+        );
 
         // Sidebar: the viewer's most recently updated forms, surfaced next to
         // the submissions table so they can jump between forms without going
@@ -52,6 +63,10 @@ class SubmissionController
             'submissions' => $rows,
             'page' => $page,
             'limit' => $limit,
+            'snapshot' => [
+                'id' => $snapshot['id'],
+                'submitted_at' => $snapshot['submitted_at'],
+            ],
             'related_forms' => $related,
         ]);
     }
@@ -95,5 +110,104 @@ class SubmissionController
         $csv = stream_get_contents($fh);
         fclose($fh);
         Response::csv('form-' . $id . '-submissions.csv', $csv);
+    }
+
+    /**
+     * @return array{id:int|null, submitted_at:string|null}
+     */
+    private function resolvePaginationSnapshot(int $userId, int $formId, int $page): array
+    {
+        if ($page <= 1) {
+            $snapshot = $this->freshSnapshot($formId);
+            $this->storePaginationSnapshot($userId, $formId, $snapshot);
+            return $snapshot;
+        }
+
+        $cached = $this->loadPaginationSnapshot($userId, $formId);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $snapshot = $this->freshSnapshot($formId);
+        $this->storePaginationSnapshot($userId, $formId, $snapshot);
+        return $snapshot;
+    }
+
+    /**
+     * @return array{id:int|null, submitted_at:string|null}
+     */
+    private function freshSnapshot(int $formId): array
+    {
+        $latest = Submission::latestForForm($formId);
+        if ($latest === null) {
+            return [
+                'id' => null,
+                'submitted_at' => null,
+            ];
+        }
+
+        return $latest;
+    }
+
+    /**
+     * @return array{id:int|null, submitted_at:string|null}|null
+     */
+    private function loadPaginationSnapshot(int $userId, int $formId): ?array
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $payload = $redis->get($this->snapshotCacheKey($userId, $formId));
+            if (!is_string($payload) || $payload === '') {
+                return null;
+            }
+
+            $decoded = json_decode($payload, true);
+            if (!is_array($decoded)) {
+                return null;
+            }
+
+            $submittedAt = $decoded['submitted_at'] ?? null;
+            $id = $decoded['id'] ?? null;
+
+            if ($submittedAt === null || $id === null) {
+                return [
+                    'id' => null,
+                    'submitted_at' => null,
+                ];
+            }
+
+            if (!is_string($submittedAt) || !is_int($id)) {
+                return null;
+            }
+
+            return [
+                'id' => $id,
+                'submitted_at' => $submittedAt,
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array{id:int|null, submitted_at:string|null} $snapshot
+     */
+    private function storePaginationSnapshot(int $userId, int $formId, array $snapshot): void
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $redis->setex(
+                $this->snapshotCacheKey($userId, $formId),
+                self::SNAPSHOT_TTL_SECONDS,
+                json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            );
+        } catch (\Throwable) {
+            // Snapshot consistency is best-effort; continue without cache if Redis is unavailable.
+        }
+    }
+
+    private function snapshotCacheKey(int $userId, int $formId): string
+    {
+        return 'submissions:snapshot:' . $userId . ':' . $formId;
     }
 }
