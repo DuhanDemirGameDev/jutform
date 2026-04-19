@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS form_settings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     form_id INT NOT NULL,
     setting_key VARCHAR(128) NOT NULL,
-    value VARCHAR(255),
+    value TEXT,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_form_setting (form_id, setting_key),
     FOREIGN KEY (form_id) REFERENCES forms(id)

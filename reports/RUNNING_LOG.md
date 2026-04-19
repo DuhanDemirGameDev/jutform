@@ -90,4 +90,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the defect heavily impacted a common customer workflow and degraded in proportion to account growth, but it was confined to one major page rather than becoming a full-site availability incident.
 - **Impact:** Large accounts now load only the forms needed for the current page, which reduces database work, response payload size, and serialization overhead. Cached counts help keep repeated loads responsive, and the API now gives the frontend explicit pagination metadata for predictable navigation.
 
+## TICKET-002 - Form Settings Truncation on Complex Forms
+**Task Completed:** Ticket 2
+**Technical Action Taken:** Expanded the `form_settings.value` storage column from `VARCHAR(255)` to `TEXT` and added a regression test that round-trips a long HTML notification template through the form update and load endpoints.
+
+- **Diagnosis:** The failure mapped to checklist point 6, Wildcard / Core PHP Logic. The controller and persistence calls were functioning as designed, but the underlying schema defined `form_settings.value` as `VARCHAR(255)`. Larger notification templates were therefore being silently truncated by the database layer, which made complex settings appear to save successfully while coming back chopped off on later loads.
+- **Action:** Added `backend/migrations/0005_expand_form_settings_value.php` to widen the `form_settings.value` column to `TEXT`, which is appropriate for larger HTML templates and other richer form settings. Added a regression test in `backend/tests/FormCrudTest.php` that saves a template longer than 255 characters through `PUT /api/forms/1` and verifies the exact string is returned unchanged from `GET /api/forms/1`.
+- **Triage Justification:** Priority 2 was appropriate because the defect corrupted customer-facing settings on a production workflow and caused broken email content to be sent to end users, but it did not create a security breach or a system-wide outage.
+- **Impact:** Complex form settings now persist without truncation, which restores correctness for branded notification templates and other larger values. The change improves data integrity and prevents silent content corruption during normal form administration.
+
 Ready for the next update.

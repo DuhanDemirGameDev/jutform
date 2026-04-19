@@ -117,4 +117,30 @@ final class FormCrudTest extends IntegrationTestCase
         $payload = $this->jsonBody($show);
         $this->assertSame('light', $payload['settings']['theme_preference'] ?? '');
     }
+
+    public function testUpdatePreservesLongNotificationTemplate(): void
+    {
+        $this->loginAs('poweruser');
+
+        $template = implode('', [
+            '<html><body><h1>Welcome</h1><p>Thanks for registering for our event.</p>',
+            '<p>Support: <a href="mailto:support@example.com">support@example.com</a></p>',
+            '<p>Team signature block with branding and links repeated for length.</p>',
+            str_repeat('<div class="footer">See you soon.</div>', 12),
+            '</body></html>',
+        ]);
+        $this->assertGreaterThan(255, strlen($template));
+
+        $res = $this->putJson('/api/forms/1', [
+            'settings' => [
+                'notification_email_template' => $template,
+            ],
+        ]);
+        $this->assertSame(200, $res['status']);
+
+        $show = $this->get('/api/forms/1');
+        $this->assertSame(200, $show['status']);
+        $payload = $this->jsonBody($show);
+        $this->assertSame($template, $payload['settings']['notification_email_template'] ?? null);
+    }
 }
