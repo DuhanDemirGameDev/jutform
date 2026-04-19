@@ -6,6 +6,7 @@ use JutForm\Core\Database;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
 use JutForm\Core\Response;
+use JutForm\Models\User;
 
 class AdminController
 {
@@ -38,7 +39,12 @@ class AdminController
 
     public function internalConfig(Request $request): void
     {
-        if (!\isInternalRequest()) {
+        $uid = RequestContext::$currentUserId;
+        if ($uid === null) {
+            Response::error('Unauthorized', 401);
+        }
+        $user = User::find($uid);
+        if (!$user || ($user['role'] ?? '') !== 'admin') {
             Response::error('Forbidden', 403);
         }
         $pdo = Database::getInstance();

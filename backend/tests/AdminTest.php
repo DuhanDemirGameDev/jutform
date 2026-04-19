@@ -32,6 +32,16 @@ final class AdminTest extends IntegrationTestCase
             'REMOTE_ADDR' => '127.0.0.1',
         ]);
         $res = $this->dispatch($req);
+        $this->assertSame(401, $res['status']);
+    }
+
+    public function testInternalConfigRequiresAdminNotLoopbackTrust(): void
+    {
+        $this->loginAs('admin');
+        $req = Request::create('GET', '/internal/admin/config', [], null, [], [
+            'REMOTE_ADDR' => '8.8.8.8',
+        ]);
+        $res = $this->dispatch($req);
         $this->assertSame(200, $res['status']);
         $body = $this->jsonBody($res);
         $this->assertArrayHasKey('items', $body);

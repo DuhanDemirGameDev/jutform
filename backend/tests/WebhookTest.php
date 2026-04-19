@@ -29,6 +29,28 @@ final class WebhookTest extends IntegrationTestCase
         $this->assertArrayHasKey('error', $body);
     }
 
+    public function testCreateRejectsPrivateNetworkUrl(): void
+    {
+        $this->loginAs('poweruser');
+        $res = $this->postJson('/api/forms/1/webhooks', [
+            'url' => 'https://10.0.0.10/hook',
+        ]);
+        $this->assertSame(400, $res['status']);
+        $body = $this->jsonBody($res);
+        $this->assertSame('URL not allowed', $body['error']);
+    }
+
+    public function testCreateRejectsUnsupportedScheme(): void
+    {
+        $this->loginAs('poweruser');
+        $res = $this->postJson('/api/forms/1/webhooks', [
+            'url' => 'file:///etc/passwd',
+        ]);
+        $this->assertSame(400, $res['status']);
+        $body = $this->jsonBody($res);
+        $this->assertSame('URL not allowed', $body['error']);
+    }
+
     public function testCreateSuccess(): void
     {
         $this->loginAs('poweruser');

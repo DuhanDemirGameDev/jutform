@@ -14,6 +14,8 @@ class WebhookService
             'method' => $method,
             'header' => "Accept: application/json\r\n",
             'timeout' => 20,
+            'follow_location' => 0,
+            'max_redirects' => 0,
         ];
         if (!in_array($method, ['GET', 'HEAD', 'DELETE'], true)) {
             $httpOpts['content'] = json_encode($payload, JSON_UNESCAPED_UNICODE);

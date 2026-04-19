@@ -1,26 +1,81 @@
 <?php
 
 /**
- * Best-effort check for URLs that should not be used as webhooks (loopback, etc.).
+ * Best-effort SSRF guard for user-supplied webhook URLs.
+ *
+ * Blocks non-HTTP(S) schemes, embedded credentials, localhost, and hosts that
+ * resolve to private or reserved IP ranges.
  */
 function isLocalRequest(string $url): bool
 {
     $parts = parse_url($url);
-    $host = $parts['host'] ?? '';
-    $host = strtolower($host);
-    if ($host === '127.0.0.1' || $host === 'localhost') {
+    if ($parts === false) {
         return true;
+    }
+    $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+    $host = strtolower((string) ($parts['host'] ?? ''));
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+        return true;
+    }
+    if (isset($parts['user']) || isset($parts['pass'])) {
+        return true;
+    }
+    if ($host === 'localhost' || str_ends_with($host, '.localhost')) {
+        return true;
+    }
+    if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+        return isPrivateOrReservedIp($host);
+    }
+    $resolved = resolveHostIps($host);
+    if ($resolved === []) {
+        return true;
+    }
+    foreach ($resolved as $ip) {
+        if (isPrivateOrReservedIp($ip)) {
+            return true;
+        }
     }
     return false;
 }
 
+function isPrivateOrReservedIp(string $ip): bool
+{
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+}
+
 /**
- * True when the inbound HTTP request appears to originate from inside our
- * own network (service-to-service calls), false for traffic coming in from
- * the outside. The edge proxy sets X-Forwarded-For to the real client IP;
- * traffic from the public internet enters via the default gateway, so we
- * treat that address as external and anything else on the internal ranges
- * as internal.
+ * @return list<string>
+ */
+function resolveHostIps(string $host): array
+{
+    $ips = [];
+    if (function_exists('dns_get_record')) {
+        $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+        if (is_array($records)) {
+            foreach ($records as $record) {
+                if (!is_array($record)) {
+                    continue;
+                }
+                foreach (['ip', 'ipv6'] as $key) {
+                    if (!empty($record[$key]) && filter_var($record[$key], FILTER_VALIDATE_IP) !== false) {
+                        $ips[] = strtolower((string) $record[$key]);
+                    }
+                }
+            }
+        }
+    }
+    if ($ips === []) {
+        $fallback = gethostbyname($host);
+        if ($fallback !== $host && filter_var($fallback, FILTER_VALIDATE_IP) !== false) {
+            $ips[] = strtolower($fallback);
+        }
+    }
+    return array_values(array_unique($ips));
+}
+
+/**
+ * Legacy helper retained for compatibility with older code paths.
+ * Prefer explicit authentication/authorization checks over source-trust logic.
  */
 function isInternalRequest(): bool
 {
