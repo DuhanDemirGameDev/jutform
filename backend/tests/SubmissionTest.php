@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace JutForm\Tests;
 
+use JutForm\Core\Database;
+use JutForm\Models\KeyValueStore;
 use JutForm\Core\Request;
 use JutForm\Tests\Support\IntegrationTestCase;
 
@@ -38,6 +40,36 @@ final class SubmissionTest extends IntegrationTestCase
         $this->loginAs('bob');
         $res = $this->get('/api/forms/1/submissions');
         $this->assertSame(403, $res['status']);
+    }
+
+    public function testSharedViewerKeepsOwnSidebarScope(): void
+    {
+        $this->loginAs('alice');
+        $title = 'Alice Sidebar Form ' . bin2hex(random_bytes(4));
+        $created = $this->postJson('/api/forms', [
+            'title' => $title,
+            'description' => 'sidebar scope regression',
+            'status' => 'draft',
+            'fields' => [],
+        ]);
+        $this->assertSame(201, $created['status']);
+
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+        $stmt->execute(['alice']);
+        $aliceId = (int) $stmt->fetchColumn();
+        $this->assertGreaterThan(0, $aliceId);
+
+        KeyValueStore::set(1, 'shared_with_user_ids', json_encode([$aliceId], JSON_THROW_ON_ERROR));
+
+        $res = $this->get('/api/forms/1/submissions', ['page' => 1, 'limit' => 5]);
+        $this->assertSame(200, $res['status']);
+        $body = $this->jsonBody($res);
+        $related = $body['related_forms'] ?? [];
+        $this->assertIsArray($related);
+
+        $titles = array_column($related, 'title');
+        $this->assertContains($title, $titles);
     }
 
     public function testExportCsvRequiresAuth(): void

@@ -29,7 +29,6 @@ class SubmissionController
             if (!is_array($ids) || !in_array($sessionUserId, $ids, true)) {
                 Response::error('Forbidden', 403);
             }
-            \checkFormOwnerPermission((int) $id);
         }
 
         $page = max(1, (int) $request->query('page', 1));
@@ -43,10 +42,9 @@ class SubmissionController
         // back to the dashboard.
         $pdo = Database::getInstance();
         $related = [];
-        $ctx = RequestContext::$currentUserId;
-        if ($ctx !== null) {
+        if ($sessionUserId !== null) {
             $stmt = $pdo->prepare('SELECT id, title FROM forms WHERE user_id = ? ORDER BY updated_at DESC LIMIT 20');
-            $stmt->execute([$ctx]);
+            $stmt->execute([$sessionUserId]);
             $related = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
 

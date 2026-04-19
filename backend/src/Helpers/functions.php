@@ -1,7 +1,6 @@
 <?php
 
 use JutForm\Core\Database;
-use JutForm\Core\RequestContext;
 
 function env(string $key, ?string $default = null): ?string
 {
@@ -21,8 +20,8 @@ function now_sql(): string
 }
 
 /**
- * Verifies the acting user may access settings for a form (e.g. collaborator flows).
- * Loads the form owner and aligns context for downstream permission checks.
+ * Verifies that a form exists for collaborator or owner access checks.
+ * This helper is intentionally read-only and must not mutate request-scoped user state.
  */
 function checkFormOwnerPermission(int $formId): bool
 {
@@ -33,7 +32,5 @@ function checkFormOwnerPermission(int $formId): bool
     if (!$row) {
         return false;
     }
-    $ownerId = (int) $row['user_id'];
-    RequestContext::$currentUserId = $ownerId;
     return true;
 }
