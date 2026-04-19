@@ -41,12 +41,46 @@ final class FormCrudTest extends IntegrationTestCase
         $this->assertSame(200, $res['status']);
         $body = $this->jsonBody($res);
         $this->assertArrayHasKey('forms', $body);
+        $this->assertArrayHasKey('page', $body);
+        $this->assertArrayHasKey('limit', $body);
+        $this->assertArrayHasKey('total', $body);
         $this->assertGreaterThan(0, \count($body['forms']));
         $first = $body['forms'][0];
         $this->assertArrayHasKey('id', $first);
         $this->assertArrayHasKey('submission_count', $first);
         $this->assertArrayHasKey('last_submission_at', $first);
         $this->assertArrayHasKey('owner_display_name', $first);
+    }
+
+    public function testListSupportsPagination(): void
+    {
+        $this->loginAs('alice');
+
+        for ($i = 1; $i <= 3; $i++) {
+            $res = $this->postJson('/api/forms', [
+                'title' => 'Paged Form ' . $i . ' ' . bin2hex(random_bytes(3)),
+                'description' => 'pagination check',
+                'status' => 'draft',
+                'fields' => [],
+            ]);
+            $this->assertSame(201, $res['status']);
+        }
+
+        $pageOne = $this->get('/api/forms', ['page' => 1, 'limit' => 2]);
+        $this->assertSame(200, $pageOne['status']);
+        $firstBody = $this->jsonBody($pageOne);
+        $this->assertCount(2, $firstBody['forms']);
+        $this->assertSame(1, $firstBody['page']);
+        $this->assertSame(2, $firstBody['limit']);
+        $this->assertGreaterThanOrEqual(3, $firstBody['total']);
+
+        $pageTwo = $this->get('/api/forms', ['page' => 2, 'limit' => 2]);
+        $this->assertSame(200, $pageTwo['status']);
+        $secondBody = $this->jsonBody($pageTwo);
+        $this->assertNotEmpty($secondBody['forms']);
+        $this->assertSame(2, $secondBody['page']);
+        $this->assertSame(2, $secondBody['limit']);
+        $this->assertSame($firstBody['total'], $secondBody['total']);
     }
 
     public function testShowOwnedForm(): void

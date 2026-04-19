@@ -20,7 +20,12 @@ class FormController
         if ($uid === null) {
             Response::error('Unauthorized', 401);
         }
-        $forms = Form::findDashboardByUser($uid);
+        $page = max(1, (int) $request->query('page', 1));
+        $limit = min(100, max(1, (int) $request->query('limit', 25)));
+        $offset = ($page - 1) * $limit;
+
+        $forms = Form::findDashboardByUser($uid, $limit, $offset);
+        $total = Form::countByUser($uid);
         $owner = User::find($uid);
         $ownerDisplayName = $owner['display_name'] ?? $owner['username'] ?? '';
         $out = [];
@@ -34,7 +39,12 @@ class FormController
                 'owner_display_name' => $ownerDisplayName,
             ];
         }
-        Response::json(['forms' => $out]);
+        Response::json([
+            'forms' => $out,
+            'page' => $page,
+            'limit' => $limit,
+            'total' => $total,
+        ]);
     }
 
     public function create(Request $request): void

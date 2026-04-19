@@ -81,4 +81,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the issue caused severe user-facing latency in a common workflow and worsened under concurrent use, but it did not cross a security boundary or take down the full application.
 - **Impact:** Search now executes against the correct dataset, returns only the current user’s forms, and avoids repeated full scans under normal usage. Redis caching smooths repeated queries, while the new full-text index materially reduces query cost as the forms table continues to grow.
 
+## TICKET-007 - "My Forms" List Load Time
+**Task Completed:** ticket 7
+**Technical Action Taken:** Introduced pagination on the `GET /api/forms` dashboard path, added cached total-count lookup, and limited each request to a bounded slice of forms instead of loading the entire dataset for large accounts.
+
+- **Diagnosis:** The failure mapped primarily to checklist point 2, MySQL Performance, with point 3, Redis/Cache, as a supporting factor. The `My forms` endpoint returned the full form list for the authenticated user on every request, which meant users with large datasets paid the cost of querying, hydrating, serializing, and transferring every row even when they only needed the first visible page. Existing caching reduced some repeat cost, but it did not address the fact that the response size and query work still scaled linearly with account size.
+- **Action:** Refactored `backend/src/Controllers/FormController.php` so the forms list accepts `page` and `limit`, calculates an offset, and returns pagination metadata alongside the forms array. Updated `backend/src/Models/Form.php` to fetch only the requested slice, added a cached `countByUser()` path for total records, and kept the existing dashboard cache versioning so create and update operations continue to invalidate stale list data. Extended `backend/tests/FormCrudTest.php` to verify paginated responses and stable pagination metadata.
+- **Triage Justification:** Priority 2 was appropriate because the defect heavily impacted a common customer workflow and degraded in proportion to account growth, but it was confined to one major page rather than becoming a full-site availability incident.
+- **Impact:** Large accounts now load only the forms needed for the current page, which reduces database work, response payload size, and serialization overhead. Cached counts help keep repeated loads responsive, and the API now gives the frontend explicit pagination metadata for predictable navigation.
+
 Ready for the next update.

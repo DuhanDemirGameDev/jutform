@@ -33,9 +33,11 @@ class Form
      *
      * @return array<int, array<string, mixed>>
      */
-    public static function findDashboardByUser(int $userId): array
+    public static function findDashboardByUser(int $userId, int $limit = 25, int $offset = 0): array
     {
-        $cacheKey = self::dashboardCacheKey($userId);
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
+        $cacheKey = self::dashboardCacheKey($userId, $limit, $offset);
         $cached = self::cacheGet($cacheKey);
         if (is_array($cached)) {
             return $cached;
@@ -60,13 +62,41 @@ class Form
             ) s ON s.form_id = f.id
             WHERE f.user_id = ?
             ORDER BY f.updated_at DESC
+            LIMIT ?
+            OFFSET ?
         SQL;
 
         $stmt = Database::getInstance()->prepare($sql);
-        $stmt->execute([$userId, $userId]);
+        $stmt->execute([$userId, $userId, $limit, $offset]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         self::cacheSet($cacheKey, $rows, 30);
         return $rows;
+    }
+
+    public static function countByUser(int $userId): int
+    {
+        $cacheKey = self::dashboardCountCacheKey($userId);
+        try {
+            $redis = RedisClient::getInstance();
+            $cached = $redis->get($cacheKey);
+            if (is_string($cached) && ctype_digit($cached)) {
+                return (int) $cached;
+            }
+        } catch (\Throwable) {
+        }
+
+        $stmt = Database::getInstance()->prepare('SELECT COUNT(*) FROM forms WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        $count = (int) $stmt->fetchColumn();
+
+        try {
+            $redis = RedisClient::getInstance();
+            $redis->setex($cacheKey, 30, (string) $count);
+        } catch (\Throwable) {
+            // Cache is an optimization only.
+        }
+
+        return $count;
     }
 
     /**
@@ -160,14 +190,19 @@ class Form
         }
     }
 
-    private static function dashboardCacheKey(int $userId): string
+    private static function dashboardCacheKey(int $userId, int $limit, int $offset): string
     {
-        return 'forms:dashboard:' . $userId . ':' . self::dashboardVersion($userId);
+        return 'forms:dashboard:' . $userId . ':' . self::dashboardVersion($userId) . ':' . $limit . ':' . $offset;
     }
 
     private static function dashboardVersionKey(int $userId): string
     {
         return 'forms:dashboard:ver:' . $userId;
+    }
+
+    private static function dashboardCountCacheKey(int $userId): string
+    {
+        return 'forms:dashboard:count:' . $userId . ':' . self::dashboardVersion($userId);
     }
 
     private static function searchCacheKey(int $userId, string $term, int $limit): string
