@@ -61,11 +61,35 @@ class Response
                 'body' => $body,
             ]);
         }
+        self::clearOutputBuffers();
         http_response_code($status);
         foreach ($headers as $name => $value) {
             header($name . ': ' . $value);
         }
         echo $body;
+        exit;
+    }
+
+    public static function pdf(string $filename, string $content): void
+    {
+        if (TestResponseBuffer::active()) {
+            TestResponseBuffer::capture([
+                'type' => 'raw',
+                'status' => 200,
+                'headers' => [
+                    'Content-Type' => 'application/pdf',
+                    'Content-Disposition' => 'attachment; filename="' . str_replace('"', '', $filename) . '"',
+                    'Cache-Control' => 'no-store',
+                ],
+                'body' => $content,
+            ]);
+        }
+        self::clearOutputBuffers();
+        http_response_code(200);
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
+        header('Cache-Control: no-store');
+        echo $content;
         exit;
     }
 
@@ -83,6 +107,7 @@ class Response
                 'contentType' => $contentType,
             ]);
         }
+        self::clearOutputBuffers();
         http_response_code(200);
         header('Content-Type: ' . $contentType);
         header('Content-Disposition: attachment; filename="' . str_replace('"', '', $downloadName) . '"');
@@ -103,6 +128,7 @@ class Response
                 'contentType' => $contentType,
             ]);
         }
+        self::clearOutputBuffers();
         http_response_code(200);
         header('Content-Type: ' . $contentType);
         header('Cache-Control: no-store');
@@ -124,10 +150,18 @@ class Response
                 'body' => $content,
             ]);
         }
+        self::clearOutputBuffers();
         http_response_code(200);
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
         echo $content;
         exit;
+    }
+
+    private static function clearOutputBuffers(): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
     }
 }
