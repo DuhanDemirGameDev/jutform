@@ -65,6 +65,7 @@ class FormController
             'status' => $body['status'] ?? 'draft',
             'fields_json' => is_string($body['fields_json'] ?? null) ? $body['fields_json'] : json_encode($body['fields'] ?? []),
         ]);
+        FormResource::ensureDefaults($id);
         Form::touchDashboardCache($uid);
         QueueService::dispatch('form_setup', ['form_id' => $id]);
         Response::json(['id' => $id, 'status' => 'created'], 201);
@@ -91,6 +92,10 @@ class FormController
             Response::error('Not found', 404);
         }
         $resources = FormResource::forForm((int) $id);
+        if (count($resources) === 0) {
+            FormResource::ensureDefaults((int) $id);
+            $resources = FormResource::forForm((int) $id);
+        }
         if (count($resources) === 0) {
             Response::error('Form setup incomplete', 404);
         }

@@ -34,6 +34,29 @@ final class FormCrudTest extends IntegrationTestCase
         $this->assertSame('created', $body['status']);
     }
 
+    public function testNewlyCreatedFormCanBeEditedImmediately(): void
+    {
+        $this->loginAs('alice');
+        $title = 'Immediate Edit ' . bin2hex(random_bytes(4));
+        $created = $this->postJson('/api/forms', [
+            'title' => $title,
+            'description' => 'create/edit race check',
+            'status' => 'draft',
+            'fields' => [],
+        ]);
+        $this->assertSame(201, $created['status']);
+        $body = $this->jsonBody($created);
+        $formId = (int) ($body['id'] ?? 0);
+        $this->assertGreaterThan(0, $formId);
+
+        $edit = $this->get('/api/forms/' . $formId . '/edit');
+        $this->assertSame(200, $edit['status']);
+        $payload = $this->jsonBody($edit);
+        $this->assertSame($formId, (int) $payload['form']['id']);
+        $this->assertArrayHasKey('resources', $payload);
+        $this->assertNotEmpty($payload['resources']);
+    }
+
     public function testListReturnsFormsForCurrentUser(): void
     {
         $this->loginAs('poweruser');
