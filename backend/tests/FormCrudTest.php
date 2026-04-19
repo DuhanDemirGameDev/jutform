@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JutForm\Tests;
 
+use JutForm\Core\Database;
 use JutForm\Tests\Support\IntegrationTestCase;
 
 final class FormCrudTest extends IntegrationTestCase
@@ -165,5 +166,40 @@ final class FormCrudTest extends IntegrationTestCase
         $this->assertSame(200, $show['status']);
         $payload = $this->jsonBody($show);
         $this->assertSame($template, $payload['settings']['notification_email_template'] ?? null);
+    }
+
+    public function testLegacyRequireLoginValueIsNormalizedOnRead(): void
+    {
+        $this->loginAs('poweruser');
+
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'INSERT INTO form_settings (form_id, setting_key, value, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)'
+        );
+        $stmt->execute([4, 'require_login', '1', date('Y-m-d H:i:s')]);
+
+        $show = $this->get('/api/forms/4');
+        $this->assertSame(200, $show['status']);
+        $payload = $this->jsonBody($show);
+        $this->assertSame('true', $payload['settings']['require_login'] ?? null);
+    }
+
+    public function testRequireLoginTogglePersistsCanonicalTrueValue(): void
+    {
+        $this->loginAs('poweruser');
+
+        $res = $this->putJson('/api/forms/4', [
+            'settings' => [
+                'require_login' => 1,
+            ],
+        ]);
+        $this->assertSame(200, $res['status']);
+
+        $show = $this->get('/api/forms/4');
+        $this->assertSame(200, $show['status']);
+        $payload = $this->jsonBody($show);
+        $this->assertSame('true', $payload['settings']['require_login'] ?? null);
     }
 }
