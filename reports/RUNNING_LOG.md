@@ -54,4 +54,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the issue affected a finance-facing reporting path and blocked accurate reporting, but it did not expose a direct security boundary or application-wide outage.
 - **Impact:** Revenue totals now come from the canonical payments table, so the dashboard aligns with finance records. The query is also cheaper to serve under repeated admin access thanks to Redis caching and the new index.
 
+## FEATURE-002 - Payment Gateway Integration
+**Task Completed:** feature 2  
+**Technical Action Taken:** Implemented the `/api/payments` backend flow with authenticated gateway salt retrieval, SHA-256 request signing, payment persistence, Redis-cached API key lookup, and explicit HTTP status handling for approved, declined, and gateway-unavailable outcomes.
+
+- **Diagnosis:** The failure mapped to checklist point 6, Wildcard / Core PHP Logic. The payment endpoint was a `501 Not implemented` stub, so there was no actual business logic to fetch the gateway salt, sign the request, submit the charge, or persist the result.
+- **Action:** Built `backend/src/Services/PaymentGatewayService.php` to call the gateway using the Docker service name `http://payment-gateway`, added `backend/src/Models/Payment.php` for persistence, and implemented `backend/src/Controllers/FeatureController.php` to validate the form ownership, compute the signed hash, handle approved/declined gateway responses, and write each outcome to `payments`. Added a supporting index migration and regression tests in `backend/tests/PaymentTest.php`.
+- **Triage Justification:** Priority 2 was appropriate because this was a new finance integration path that blocks payment processing if absent, but it was not a security defect or system-wide outage.
+- **Impact:** The application can now charge through the gateway reliably, persist the exact result for accounting, and return the correct HTTP contract to the frontend. Redis caching reduces repeated API key lookups without changing the gateway behavior.
+
 Ready for the next update.
