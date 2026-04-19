@@ -16,6 +16,8 @@ final class SubmissionTest extends IntegrationTestCase
         $body = json_encode(['data' => ['test_key' => 'test_value']], JSON_THROW_ON_ERROR);
         $req = Request::create('POST', '/api/forms/1/submissions', [], $body, [
             'Content-Type' => 'application/json',
+        ], [
+            'REMOTE_ADDR' => '198.51.100.12',
         ]);
         $res = $this->dispatch($req);
         $this->assertSame(201, $res['status']);

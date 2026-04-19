@@ -39,6 +39,8 @@ final class RouteProtectionTest extends IntegrationTestCase
         $body = json_encode(['data' => ['hello' => 'world']], JSON_THROW_ON_ERROR);
         $req = Request::create('POST', '/api/forms/1/submissions', [], $body, [
             'Content-Type' => 'application/json',
+        ], [
+            'REMOTE_ADDR' => '198.51.100.11',
         ]);
         $res = $this->dispatch($req);
         $this->assertSame('json', $res['type']);

@@ -12,7 +12,7 @@ class RedisClient
     public static function getInstance(): Redis
     {
         if (self::$instance === null) {
-            $host = getenv('REDIS_HOST') ?: '127.0.0.1';
+            $host = getenv('REDIS_HOST') ?: 'redis';
             $port = (int) (getenv('REDIS_PORT') ?: 6379);
             $redis = new Redis();
             try {
@@ -23,5 +23,10 @@ class RedisClient
             self::$instance = $redis;
         }
         return self::$instance;
+    }
+
+    public static function resetForTesting(): void
+    {
+        self::$instance = null;
     }
 }

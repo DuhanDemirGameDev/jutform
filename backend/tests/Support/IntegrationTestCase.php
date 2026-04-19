@@ -7,6 +7,7 @@ namespace JutForm\Tests\Support;
 use JutForm\Core\Database;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
+use JutForm\Core\RedisClient;
 use JutForm\Core\ResponseHalted;
 use JutForm\Core\Router;
 use JutForm\Core\TestResponseBuffer;
@@ -55,6 +56,7 @@ abstract class IntegrationTestCase extends TestCase
         }
         $_SESSION = [];
         $_FILES = [];
+        RedisClient::resetForTesting();
         RequestContext::$currentUserId = null;
         TestResponseBuffer::reset();
     }
@@ -68,6 +70,7 @@ abstract class IntegrationTestCase extends TestCase
             }
             Database::resetForTesting();
         }
+        RedisClient::resetForTesting();
         $_FILES = [];
         parent::tearDown();
     }
@@ -96,13 +99,14 @@ abstract class IntegrationTestCase extends TestCase
 
     /**
      * @param array<string, mixed>|array<int|string, mixed> $data
+     * @param array<string, mixed> $serverExtra
      */
-    protected function postJson(string $path, array $data): array
+    protected function postJson(string $path, array $data, array $serverExtra = []): array
     {
         $body = json_encode($data, JSON_THROW_ON_ERROR);
         $req = Request::create('POST', $path, [], $body, [
             'Content-Type' => 'application/json',
-        ]);
+        ], $serverExtra);
         return $this->dispatch($req);
     }
 
@@ -127,12 +131,12 @@ abstract class IntegrationTestCase extends TestCase
         return $this->dispatch($req);
     }
 
-    protected function loginAs(string $username, string $password = 'password'): void
+    protected function loginAs(string $username, string $password = 'password', array $serverExtra = []): void
     {
         $res = $this->postJson('/api/auth/login', [
             'username' => $username,
             'password' => $password,
-        ]);
+        ], $serverExtra);
         $this->assertSame('json', $res['type']);
         $this->assertSame(200, $res['status']);
         $body = $res['body'];

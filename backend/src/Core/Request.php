@@ -132,7 +132,22 @@ class Request
 
     public function ip(): string
     {
-        return $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
+        $forwardedFor = $this->header('X-Forwarded-For') ?? $this->server('HTTP_X_FORWARDED_FOR');
+        if (is_string($forwardedFor) && $forwardedFor !== '') {
+            foreach (explode(',', $forwardedFor) as $candidate) {
+                $candidate = trim($candidate);
+                if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_IP) !== false) {
+                    return $candidate;
+                }
+            }
+        }
+
+        $remoteAddr = $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
+        if (is_string($remoteAddr) && filter_var($remoteAddr, FILTER_VALIDATE_IP) !== false) {
+            return $remoteAddr;
+        }
+
+        return '0.0.0.0';
     }
 
     public function cookie(string $name, ?string $default = null): ?string

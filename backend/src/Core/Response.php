@@ -6,14 +6,26 @@ class Response
 {
     public static function json(mixed $data, int $status = 200): void
     {
+        self::jsonWithHeaders($data, $status);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    public static function jsonWithHeaders(mixed $data, int $status = 200, array $headers = []): void
+    {
         if (TestResponseBuffer::active()) {
             TestResponseBuffer::capture([
                 'type' => 'json',
                 'status' => $status,
+                'headers' => $headers,
                 'body' => $data,
             ]);
         }
         http_response_code($status);
+        foreach ($headers as $name => $value) {
+            header($name . ': ' . $value);
+        }
         header('Content-Type: application/json; charset=UTF-8');
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;

@@ -63,4 +63,13 @@
 - **Triage Justification:** Priority 2 was appropriate because this was a new finance integration path that blocks payment processing if absent, but it was not a security defect or system-wide outage.
 - **Impact:** The application can now charge through the gateway reliably, persist the exact result for accounting, and return the correct HTTP contract to the frontend. Redis caching reduces repeated API key lookups without changing the gateway behavior.
 
+## FEATURE-004 - Rate Limit Public Form Submissions
+**Task Completed:** feature 4
+**Technical Action Taken:** Added a submission-only Redis rate limiter keyed by client IP, enforced a 10-requests-per-5-seconds ceiling, and returned `429` responses with a computed `Retry-After` header when the window is exceeded.
+
+- **Diagnosis:** The failure mapped to checklist point 3, Redis/Cache, with a small HTTP communication component from point 4. The public submission endpoint had no request throttling, so automated clients could spam `POST /api/forms/{id}/submissions` without constraint. The API also needed to return a standards-compliant `429` response with retry guidance once the limit was hit.
+- **Action:** Added `backend/src/Middleware/SubmissionRateLimitMiddleware.php` to track requests in Redis using a fixed 5-second window per IP and atomically increment counters before the submission controller runs. Wired the middleware only to the public submission route in `backend/config/routes.php`, extended `backend/src/Core/Response.php` to support custom headers on JSON responses, and added regression tests in `backend/tests/SubmissionRateLimitTest.php` to verify the 11th request is blocked while other routes remain unaffected.
+- **Triage Justification:** Priority 2 was appropriate because this was a targeted abuse-prevention feature rather than a data breach or outage, but it still protects an important public entry point from bot traffic and uncontrolled load.
+- **Impact:** Public submissions are now constrained to a predictable request rate per IP, which reduces spam, protects downstream processing from bursts, and preserves normal behavior on unrelated endpoints. The `Retry-After` header also gives clients a clear recovery window instead of failing blindly.
+
 Ready for the next update.
