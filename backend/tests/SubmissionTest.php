@@ -91,6 +91,32 @@ final class SubmissionTest extends IntegrationTestCase
         $this->assertStringContainsString('data_json', $csv);
     }
 
+    public function testExportCsvIncludesUtf8BomAndPreservesUnicode(): void
+    {
+        $this->loginAs('poweruser');
+
+        $payload = json_encode([
+            'name' => 'José 😀',
+            'city' => 'İstanbul',
+            'script' => '東京',
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'INSERT INTO submissions (form_id, data_json, ip_address, submitted_at) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([1, $payload, '127.0.0.1', '2030-01-01 12:00:00']);
+
+        $res = $this->get('/api/forms/1/submissions/export');
+        $this->assertSame('csv', $res['type']);
+        $csv = (string) ($res['body'] ?? '');
+
+        $this->assertStringStartsWith("\xEF\xBB\xBF", $csv);
+        $this->assertStringContainsString('José 😀', $csv);
+        $this->assertStringContainsString('İstanbul', $csv);
+        $this->assertStringContainsString('東京', $csv);
+    }
+
     public function testAdjacentPagesDoNotOverlapWhenSubmittedAtTies(): void
     {
         $this->loginAs('poweruser');

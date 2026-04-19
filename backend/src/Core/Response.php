@@ -112,6 +112,10 @@ class Response
 
     public static function csv(string $filename, string $content): void
     {
+        $bom = "\xEF\xBB\xBF";
+        if (!str_starts_with($content, $bom)) {
+            $content = $bom . $content;
+        }
         if (TestResponseBuffer::active()) {
             TestResponseBuffer::capture([
                 'type' => 'csv',
