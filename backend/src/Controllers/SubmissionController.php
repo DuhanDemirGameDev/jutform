@@ -65,6 +65,9 @@ class SubmissionController
         $body = $request->jsonBody();
         $dataJson = isset($body['data']) ? json_encode($body['data'], JSON_UNESCAPED_UNICODE) : '{}';
         $sid = Submission::create((int) $id, $dataJson, $request->ip());
+        if (isset($form['user_id'])) {
+            \JutForm\Models\Form::touchDashboardCache((int) $form['user_id']);
+        }
         QueueService::dispatch('submission_notify', [
             'form_id' => (int) $id,
             'submission_id' => $sid,

@@ -2,7 +2,6 @@
 
 namespace JutForm\Controllers;
 
-use JutForm\Core\Database;
 use JutForm\Core\QueueService;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
@@ -10,7 +9,6 @@ use JutForm\Core\Response;
 use JutForm\Models\Form;
 use JutForm\Models\FormResource;
 use JutForm\Models\KeyValueStore;
-use JutForm\Models\Submission;
 use JutForm\Models\User;
 use JutForm\Services\ExternalApiService;
 
@@ -22,20 +20,18 @@ class FormController
         if ($uid === null) {
             Response::error('Unauthorized', 401);
         }
-        $forms = Form::findByUser($uid);
+        $forms = Form::findDashboardByUser($uid);
+        $owner = User::find($uid);
+        $ownerDisplayName = $owner['display_name'] ?? $owner['username'] ?? '';
         $out = [];
         foreach ($forms as $f) {
-            $formId = (int) $f['id'];
-            $count = Submission::countByForm($formId);
-            $latest = Submission::getLatestSubmittedAt($formId);
-            $owner = User::find((int) $f['user_id']);
             $out[] = [
-                'id' => $formId,
+                'id' => (int) $f['id'],
                 'title' => $f['title'],
                 'status' => $f['status'],
-                'submission_count' => $count,
-                'last_submission_at' => $latest,
-                'owner_display_name' => $owner['display_name'] ?? $owner['username'] ?? '',
+                'submission_count' => (int) ($f['submission_count'] ?? 0),
+                'last_submission_at' => $f['last_submission_at'] ?? null,
+                'owner_display_name' => $ownerDisplayName,
             ];
         }
         Response::json(['forms' => $out]);
@@ -59,6 +55,7 @@ class FormController
             'status' => $body['status'] ?? 'draft',
             'fields_json' => is_string($body['fields_json'] ?? null) ? $body['fields_json'] : json_encode($body['fields'] ?? []),
         ]);
+        Form::touchDashboardCache($uid);
         QueueService::dispatch('form_setup', ['form_id' => $id]);
         Response::json(['id' => $id, 'status' => 'created'], 201);
     }
@@ -116,6 +113,7 @@ class FormController
         }
         if ($update !== []) {
             Form::update((int) $id, $update);
+            Form::touchDashboardCache($uid);
         }
         if (isset($body['settings']) && is_array($body['settings'])) {
             foreach ($body['settings'] as $sk => $sv) {

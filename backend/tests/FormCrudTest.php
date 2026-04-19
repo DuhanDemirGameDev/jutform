@@ -45,6 +45,8 @@ final class FormCrudTest extends IntegrationTestCase
         $first = $body['forms'][0];
         $this->assertArrayHasKey('id', $first);
         $this->assertArrayHasKey('submission_count', $first);
+        $this->assertArrayHasKey('last_submission_at', $first);
+        $this->assertArrayHasKey('owner_display_name', $first);
     }
 
     public function testShowOwnedForm(): void
