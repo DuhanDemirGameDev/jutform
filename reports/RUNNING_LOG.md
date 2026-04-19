@@ -36,4 +36,13 @@
 - **Triage Justification:** Priority 1 was appropriate because the issue affected the availability of the entire site, not just one user flow. Brief but recurring outages during business hours indicate a production-wide capacity problem with immediate customer impact.
 - **Impact:** The dashboard now generates far fewer MySQL queries, reduces lock and CPU pressure during busy periods, and returns faster under load. Redis caching smooths repeated requests, while the new indexes improve the cold-cache execution plan and help keep the application responsive during peak traffic.
 
+## TICKET-004 - Duplicate Notification Emails
+**Task Completed:** ticket 4  
+**Technical Action Taken:** Added an atomic Redis claim per scheduled email in the worker so only one process can send a given notification, and added regression coverage for the duplicate-send race.
+
+- **Diagnosis:** The failure mapped to checklist point 3, Redis/Cache. The worker was reading pending email rows, sending them, and only then updating status. With multiple worker replicas running during busy periods, two processes could pick up the same pending row before either one marked it complete, which produced duplicate emails.
+- **Action:** Refactored `backend/src/Workers/EmailWorker.php` to claim each scheduled email in Redis before sending, skip already-claimed rows, and release the claim after delivery completes. Added a regression test in `backend/tests/EmailWorkerTest.php` that pre-claims a job and verifies the worker does not process it twice.
+- **Triage Justification:** Priority 2 was appropriate because the bug directly impacted customer-facing email delivery reliability and became much more visible under high traffic, but it did not expose data or security boundaries.
+- **Impact:** The notification pipeline is now race-safe under concurrent worker execution, which prevents duplicate sends and stabilizes email behavior during load spikes.
+
 Ready for the next update.

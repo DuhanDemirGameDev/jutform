@@ -5,11 +5,14 @@ namespace JutForm\Workers;
 use DateTimeImmutable;
 use DateTimeZone;
 use JutForm\Core\Database;
+use JutForm\Core\RedisClient;
 use JutForm\Models\KeyValueStore;
 use JutForm\Services\SmtpMailer;
 
 class EmailWorker
 {
+    private const EMAIL_CLAIM_TTL_SECONDS = 300;
+
     public static function processBatch(): void
     {
         $pdo = Database::getInstance();
@@ -24,16 +27,24 @@ class EmailWorker
             if ($scheduled > $now) {
                 continue;
             }
-            $ok = SmtpMailer::send(
-                $row['recipient_email'],
-                (string) $row['subject'],
-                (string) $row['body']
-            );
-            $upd = $pdo->prepare(
-                'UPDATE scheduled_emails SET status = ?, sent_at = ? WHERE id = ? AND status = ?'
-            );
-            $sentAt = gmdate('Y-m-d H:i:s');
-            $upd->execute([$ok ? 'sent' : 'failed', $sentAt, $row['id'], 'pending']);
+            $claimKey = self::claimKey((int) $row['id']);
+            if (!self::acquireClaim($claimKey, (string) $row['id'])) {
+                continue;
+            }
+            try {
+                $ok = SmtpMailer::send(
+                    $row['recipient_email'],
+                    (string) $row['subject'],
+                    (string) $row['body']
+                );
+                $upd = $pdo->prepare(
+                    'UPDATE scheduled_emails SET status = ?, sent_at = ? WHERE id = ? AND status = ?'
+                );
+                $sentAt = gmdate('Y-m-d H:i:s');
+                $upd->execute([$ok ? 'sent' : 'failed', $sentAt, $row['id'], 'pending']);
+            } finally {
+                self::releaseClaim($claimKey);
+            }
         }
     }
 
@@ -163,5 +174,29 @@ class EmailWorker
             }
         }
         return 'there';
+    }
+
+    private static function claimKey(int $emailId): string
+    {
+        return 'scheduled_email:claim:' . $emailId;
+    }
+
+    private static function acquireClaim(string $key, string $token): bool
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            return (bool) $redis->set($key, $token, ['nx', 'ex' => self::EMAIL_CLAIM_TTL_SECONDS]);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private static function releaseClaim(string $key): void
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $redis->del($key);
+        } catch (\Throwable) {
+        }
     }
 }

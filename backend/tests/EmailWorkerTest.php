@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JutForm\Tests;
 
 use JutForm\Core\Database;
+use JutForm\Core\RedisClient;
 use JutForm\Models\KeyValueStore;
 use JutForm\Models\Submission;
 use JutForm\Tests\Support\IntegrationTestCase;
@@ -183,6 +184,40 @@ final class EmailWorkerTest extends IntegrationTestCase
         $pdo = Database::getInstance();
         $count = (int) $pdo->query('SELECT COUNT(*) FROM scheduled_emails WHERE form_id = 999999')->fetchColumn();
         $this->assertSame(0, $count);
+    }
+
+    public function testClaimedEmailIsNotProcessedTwice(): void
+    {
+        $pdo = Database::getInstance();
+        $recipient = 'dup-check-' . bin2hex(random_bytes(4)) . '@example.com';
+        $stmt = $pdo->prepare(
+            'INSERT INTO scheduled_emails (form_id, recipient_email, subject, body, scheduled_at, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $scheduledAt = gmdate('Y-m-d H:i:s', time() - 10);
+        $stmt->execute([
+            self::FORM_ID,
+            $recipient,
+            'Duplicate check',
+            'Body',
+            $scheduledAt,
+            'pending',
+            gmdate('Y-m-d H:i:s'),
+        ]);
+        $emailId = (int) $pdo->lastInsertId();
+        $claimKey = 'scheduled_email:claim:' . $emailId;
+        $redis = RedisClient::getInstance();
+        $redis->set($claimKey, 'locked', ['nx', 'ex' => 300]);
+
+        try {
+            EmailWorker::processBatch();
+            $row = $pdo->prepare('SELECT status FROM scheduled_emails WHERE id = ?');
+            $row->execute([$emailId]);
+            $status = $row->fetchColumn();
+            $this->assertSame('pending', $status);
+        } finally {
+            $redis->del($claimKey);
+        }
     }
 
     /**
