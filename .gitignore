@@ -11,3 +11,10 @@ vendor/
 mysql_data/
 backend/storage/uploads/*
 !backend/storage/uploads/.gitkeep
+
+# Eklenmesi gerekenler:
+*.txt
+*.csv
+*.pdf
+auth.json
+.php_cs.cache
