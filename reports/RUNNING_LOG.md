@@ -45,4 +45,13 @@
 - **Triage Justification:** Priority 2 was appropriate because the bug directly impacted customer-facing email delivery reliability and became much more visible under high traffic, but it did not expose data or security boundaries.
 - **Impact:** The notification pipeline is now race-safe under concurrent worker execution, which prevents duplicate sends and stabilizes email behavior during load spikes.
 
+## TICKET-008 - Revenue Totals Mismatch
+**Task Completed:** ticket 8  
+**Technical Action Taken:** Replaced brittle string parsing of payment amounts in the admin revenue endpoint with a PDO sum over the canonical `payments` table, added Redis-backed caching with versioned invalidation, and added a supporting MySQL index.
+
+- **Diagnosis:** The failure mapped to checklist point 6, Wildcard / Core PHP Logic. The admin revenue calculation was extracting numbers from `app_config` using substring operations against serialized text, rather than reading the actual payment records. That made the totals drift from finance data and caused line-item values to be misread.
+- **Action:** Refactored `backend/src/Controllers/AdminController.php` to sum `payments.amount` for approved transactions using PDO, cache the result briefly in Redis, and invalidate naturally when the payments table changes. Added a migration for `payments(status, paid_at)` and a regression test in `backend/tests/AdminTest.php` that verifies only approved payments are counted.
+- **Triage Justification:** Priority 2 was appropriate because the issue affected a finance-facing reporting path and blocked accurate reporting, but it did not expose a direct security boundary or application-wide outage.
+- **Impact:** Revenue totals now come from the canonical payments table, so the dashboard aligns with finance records. The query is also cheaper to serve under repeated admin access thanks to Redis caching and the new index.
+
 Ready for the next update.

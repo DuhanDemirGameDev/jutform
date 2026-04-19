@@ -3,6 +3,7 @@
 namespace JutForm\Controllers;
 
 use JutForm\Core\Database;
+use JutForm\Core\RedisClient;
 use JutForm\Core\Request;
 use JutForm\Core\RequestContext;
 use JutForm\Core\Response;
@@ -21,20 +22,24 @@ class AdminController
             Response::error('Forbidden', 403);
         }
         $pdo = Database::getInstance();
-        $sql = 'SELECT SUM(
-            CAST(
-              SUBSTRING(
-                value,
-                LOCATE(\'"amount":\', value) + 9,
-                LOCATE(\',\', value, LOCATE(\'"amount":\', value)) - (LOCATE(\'"amount":\', value) + 9)
-              ) AS DECIMAL(10,2)
-            )
-          ) AS total
-          FROM app_config
-          WHERE config_key REGEXP \'^payment_[0-9]+$\'';
-        $row = $pdo->query($sql)->fetch(\PDO::FETCH_ASSOC);
-        $total = $row['total'] ?? null;
-        Response::json(['revenue_total' => $total !== null ? (float) $total : 0.0]);
+        $versionRow = $pdo->query('SELECT COALESCE(MAX(id), 0) AS v FROM payments')->fetch(\PDO::FETCH_ASSOC);
+        $version = (string) ((int) ($versionRow['v'] ?? 0));
+        $cacheKey = 'admin:revenue_total:v1:' . $version;
+        $cached = $this->cacheGetFloat($cacheKey);
+        if ($cached !== null) {
+            Response::json(['revenue_total' => $cached]);
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT COALESCE(SUM(amount), 0) AS total
+             FROM payments
+             WHERE status = ?'
+        );
+        $stmt->execute(['approved']);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $total = (float) ($row['total'] ?? 0);
+        $this->cacheSetFloat($cacheKey, $total, 60);
+        Response::json(['revenue_total' => $total]);
     }
 
     public function internalConfig(Request $request): void
@@ -72,5 +77,29 @@ class AdminController
             }
         }
         Response::html('<pre>' . htmlspecialchars(implode("\n", $lines)) . '</pre>');
+    }
+
+    private function cacheGetFloat(string $key): ?float
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $value = $redis->get($key);
+            if (!is_string($value) || $value === '') {
+                return null;
+            }
+            return (float) $value;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function cacheSetFloat(string $key, float $value, int $ttl): void
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            $redis->setex($key, $ttl, (string) $value);
+        } catch (\Throwable) {
+            // Best-effort cache only.
+        }
     }
 }
